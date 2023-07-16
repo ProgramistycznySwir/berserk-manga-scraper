@@ -1,22 +1,12 @@
 ﻿using System;
 using System.IO;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Threading.Tasks;
 using HtmlAgilityPack;
 
-// async Task Test()
-// {
-//     string chapterUrl = "https://readberserk.com/chapter/berserk-chapter-364-5/";
-//     using HttpClient client = new();
-//     var doc = new HtmlDocument();
-//     doc.LoadHtml(await (await client.GetAsync(chapterUrl)).Content.ReadAsStringAsync());
-//     var pages = doc.DocumentNode.SelectNodes("//img[@class='pages__img']").Select(node => node.GetAttributeValue("src", string.Empty));
-//     foreach (var (pageUrl, idx) in pages.Zip(Enumerable.Range(1, pages.Count())))
-//         await DownloadPage(pageUrl, "364-5", idx);
-// }
-// await Test();
-// return;
+
 
 using HttpClient client = new();
 
@@ -27,16 +17,14 @@ doc.LoadHtml(await (await client.GetAsync(anyPageUrl)).Content.ReadAsStringAsync
 
 var chapters = doc.DocumentNode.SelectSingleNode("//select").ChildNodes.Select(node => node.GetAttributeValue("value", string.Empty));
 
-// IEnumerable<ProgressTracker>
-
-await Parallel.ForEachAsync(chapters.OrderBy(x => x), async (chapterUrl, _) => {
+Parallel.ForEach(chapters.OrderBy(x => x), async (chapterUrl, _) =>
+{
     if (string.IsNullOrWhiteSpace(chapterUrl))
         return;
 
     string chapter = string.Concat(
         chapterUrl.Skip(chapterUrl.LastIndexOf("chapter-") + "chapter-".Length).TakeWhile(x => x is not '/'));
-    Console.WriteLine($"\nCHAPTER {chapter}");
-    int page = 0;
+    int page = 0, successPages = 0;
 
     using HttpClient client = new();
     var doc = new HtmlDocument();
@@ -45,13 +33,15 @@ await Parallel.ForEachAsync(chapters.OrderBy(x => x), async (chapterUrl, _) => {
     foreach (var pageUrl in pages)
     {
         page++;
-
-        Log(chapter, page, "...");
         if (await DownloadPage(pageUrl, chapter, page) is false)
-            break;
-        Log(chapter, page, "OK");
+            continue;
+        successPages++;
     }
+    await Console.Out.WriteLineAsync(
+        $"{(successPages == pages.Count() ? "(OK)" : "[ERR]")} Chapter {chapter} downloaded {successPages}/{pages.Count()} pages!");
 });
+
+
 
 async Task<bool> DownloadPage(string url, string chapter, int page)
 {
@@ -61,17 +51,26 @@ async Task<bool> DownloadPage(string url, string chapter, int page)
 
     EnsurePath(dirPath);
     if (File.Exists(path))
-    {
-        Log(chapter, page, "skipped...");
         return true;
-    }
 
-    using HttpClient client = new();
-    using var response = await client.GetAsync(url);
+    HttpResponseMessage response;
+    try
+    {
+        using HttpClient client = new();
+        response = await client.GetAsync(url);
+    }
+    catch (Exception ex)
+    {
+        await Err(chapter, page, $"url: {url} Exception:\n{ex.Message}");
+        return false;
+    }
 
     if (response.IsSuccessStatusCode is false)
     {
-        Log(chapter, page, "ERR");
+        if (response.StatusCode is HttpStatusCode.RequestTimeout)
+            await Err(chapter, page, "HTTP_408: Timeout (just run scraper again, it's no big deal)");
+        else
+            await Err(chapter, page, $"HTTP_{(int)response.StatusCode}: {response.ReasonPhrase} url: {url}");
         return false;
     }
 
@@ -81,8 +80,11 @@ async Task<bool> DownloadPage(string url, string chapter, int page)
     return true;
 }
 
-void Log(string chapter, int page, string log)
-    => Console.WriteLine($"{chapter}_{page:D3}: {log}");
+async Task Log(string chapter, int page, string log)
+    => await Console.Out.WriteLineAsync($"{chapter}_{page:D3}: {log}");
+
+async Task Err(string chapter, int page, string? log = default)
+    => await Console.Error.WriteLineAsync($"{chapter}_{page:D3} ERR: {log}");
 
 void EnsurePath(string path)
 {
