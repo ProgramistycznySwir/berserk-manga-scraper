@@ -18,6 +18,9 @@ There are 2 ways:
 1. Download source
 2. run `dotnet run` in main directory
 
+## Where does downloaded pages go?
+Program is really simple so it creates "Berserk" directory in the same directory you run it from.
+
 ## Update 2025-03-19
 It seems that some pages on <https://readberserk.com/> are unavailable some of the time.  
 If there are any errors simply wait some hours and re-run this program, it skips already downloaded pages and only fetches missing ones.
